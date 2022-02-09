@@ -94,8 +94,16 @@ contract MyEpicNFT is ERC721URIStorage {
         return uint256(keccak256(abi.encodePacked(input)));
     }
 
+    function getMintedTime() public view returns (uint256) {
+        return _tokenIds.current();
+    }
+
     function makeAnEpicNFT() public {
         uint256 newItemId = _tokenIds.current();
+
+        if (newItemId >= 50) {
+            revert('No NFT available, come back later!');
+        }
 
         // We go and randomly grab one word from each of the three arrays.
         string memory first = pickRandomFirstWord(newItemId);

@@ -1,5 +1,13 @@
 <template>
   <div class="container">
+    <loading
+      v-model:active="isLoading"
+      :can-cancel="false"
+      :is-full-page="true"
+    />
+    <p v-if="currentAccount !== null" class="small-sub-text">
+      Account: {{ currentAccount }}
+    </p>
     <div class="header-container">
       <p class="header gradient-text">Mint my NFT</p>
       <p class="sub-text">Yes, mint me!</p>
@@ -18,36 +26,46 @@
       >
         Connect to Wallet
       </button>
-      <button
-        v-else
-        class="cta-button connect-wallet-button"
-        @click="askContract"
-      >
-        Mint NFT
-      </button>
-      <p v-if="currentAccount !== null" class="sub-text">
-        Account: {{ currentAccount }}
-      </p>
+      <div v-else>
+        <button class="cta-button connect-wallet-button" @click="askContract">
+          Mint NFT
+        </button>
+        <p class="sub-text">Only {{ 50 - mintedTime }} available, hurry up!</p>
+      </div>
       <p v-if="mintStatus !== null" class="sub-text">
         {{ mintStatus }}
       </p>
-      <a :href="link" target="_blank" class="sub-text">{{ link }}</a>
+      <a :href="link" target="_blank" class="sub-text" v-if="link != null"
+        >Minted! Click here to see.</a
+      >
+      <p v-if="error !== null" class="error">{{ error }}</p>
     </div>
   </div>
 </template>
 
 <script>
+import Loading from "vue-loading-overlay";
+import "vue-loading-overlay/dist/vue-loading.css";
+
 import { ethers } from "ethers";
 import myEpicNft from "../utils/MyEpicNFT.json";
 
+const CONTRACT_ADDRESS = "0xda72F64E1816D704E294259cE0B69e4DE337ecC7";
+
 export default {
   name: "EpicNFT",
+  components: {
+    Loading,
+  },
   data() {
     return {
+      isLoading: false,
+      error: null,
       ethereum: null,
       currentAccount: null,
       mintStatus: null,
       link: null,
+      mintedTime: 0,
     };
   },
   methods: {
@@ -64,37 +82,39 @@ export default {
       this.currentAccount = accounts[0];
     },
     async askContract() {
-      const CONTRACT_ADDRESS = "0x51307b5070D5cDE9d593cB8b6F5D297A9b91Ab5F";
-
       try {
-        const { ethereum } = window;
-
-        if (ethereum) {
-          const provider = new ethers.providers.Web3Provider(ethereum);
+        if (this.ethereum) {
+          const provider = new ethers.providers.Web3Provider(this.ethereum);
           const signer = provider.getSigner();
           const connectedContract = new ethers.Contract(
             CONTRACT_ADDRESS,
             myEpicNft.abi,
             signer
           );
+          this.mintedTime = parseInt(await connectedContract.getMintedTime());
 
-          connectedContract.on("NewEpicNFTMinted", (from, tokenId) => {
+          this.isLoading = true;
+          let nftTxn = await connectedContract.makeAnEpicNFT();
+
+          connectedContract.on("NewEpicNFTMinted", async (from, tokenId) => {
             console.log(from, tokenId.toNumber());
             this.link = `https://testnets.opensea.io/assets/${CONTRACT_ADDRESS}/${tokenId.toNumber()}`;
+            this.mintedTime = parseInt(await connectedContract.getMintedTime());
           });
-
-          let nftTxn = await connectedContract.makeAnEpicNFT();
+          console.log("Event setup");
 
           this.mintStatus = "Mining... please wait";
           await nftTxn.wait();
+          this.isLoading = false;
 
           this.mintStatus = "Mined, see transaction: ";
           // this.link = `https://rinkeby.etherscan.io/tx/${nftTxn.hash}`;
         } else {
           this.mintStatus = "Ethereum object doesn't exist!";
         }
-      } catch (error) {
-        console.log(error);
+      } catch (e) {
+        this.isLoading = false;
+        this.error = 'There is not NFT available anymore :(';
       }
     },
   },
@@ -102,6 +122,7 @@ export default {
     const { ethereum } = window;
     this.ethereum = ethereum;
     if (this.etherum === null) {
+      alert("Get Metamask!");
       return;
     }
     const accounts = await this.ethereum.request({ method: "eth_accounts" });
@@ -117,6 +138,21 @@ export default {
       const rinkebyChainId = "0x4";
       if (chainId !== rinkebyChainId) {
         alert("You are not connected to the Rinkeby Test Network!");
+      } else {
+        const provider = new ethers.providers.Web3Provider(this.ethereum);
+        const signer = provider.getSigner();
+        const connectedContract = new ethers.Contract(
+          CONTRACT_ADDRESS,
+          myEpicNft.abi,
+          signer
+        );
+        connectedContract.on("NewEpicNFTMinted", async (from, tokenId) => {
+          console.log(from, tokenId.toNumber());
+          this.link = `https://testnets.opensea.io/assets/${CONTRACT_ADDRESS}/${tokenId.toNumber()}`;
+          this.mintedTime = parseInt(await connectedContract.getMintedTime());
+        });
+        console.log("Event setup");
+        this.mintedTime = parseInt(await connectedContract.getMintedTime());
       }
     } else {
       console.log("No authorized account found");
@@ -156,6 +192,14 @@ export default {
   color: white;
 }
 
+.small-sub-text {
+  font-size: 12px;
+  color: white;
+}
+
+.error {
+  color: red;
+}
 .cta-button {
   height: 45px;
   border: 0;
